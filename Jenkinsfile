@@ -1,9 +1,7 @@
 pipeline {
-  agent any
+  agent { label 'jenkins-node' }
 
-  triggers {
-    pollSCM('* * * * *')
-  }
+  triggers { pollSCM('* * * * *') }
 
   stages {
     stage('Checkout') {
@@ -14,7 +12,7 @@ pipeline {
     }
     stage('Build') {
       steps {
-        sh 'mvn clean build'
+        sh 'mvn clean package'
       }
     }
    stage('Deploy') {

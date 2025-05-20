@@ -2,33 +2,39 @@ pipeline {
   agent {
     kubernetes {
       yaml '''
-        apiVersion: v1
-        kind: Pod
-        spec:
-          containers:
-          - name: maven
-            image: maven:3-openjdk-17
-            command:
-            - sleep
-            args:
-            - infinity
-          - name: kaniko
-            image: gcr.io/kaniko-project/executor:debug
-            command:
-            - sleep
-            args:
-            - infinity
-            volumeMounts:
-            - name: registry-credentials
-              mountPath: /kaniko/.docker
-          volumes:
-          - name: registry-credentials
-            secret:
-              secretName: docker-hub-credential
-              items:
-              - key: .dockerconfigjson
-                path: config.json
-        '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: maven
+    image: maven:3-openjdk-17
+    command:
+    - sleep
+    args:
+    - infinity
+  - name: git
+    image: alpine/git
+    command:
+    - sleep
+    args:
+    - infinity
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:debug
+    command:
+    - sleep
+    args:
+    - infinity
+    volumeMounts:
+    - name: registry-credentials
+      mountPath: /kaniko/.docker
+  volumes:
+  - name: registry-credentials
+    secret:
+      secretName: docker-hub-credential
+      items:
+      - key: .dockerconfigjson
+        path: config.json
+'''
     }
   }
   stages {
@@ -56,7 +62,32 @@ pipeline {
     stage('Build & Tag & Push Docker Image') {
       steps {
         container('kaniko') {
-          sh 'executor --context=dir://$WORKSPACE --destination=nolmbiiok/jenkins-kaniko:$BUILD_NUMBER --destination=nolmbiiok/jenkins-kaniko:latest'
+          sh 'executor --dockerfile=Dockerfile --context=dir:///home/jenkins/agent/workspace/kube_pipeline/ --destination=nolmbiiok/jenkins-kaniko:$BUILD_NUMBER --destination=nolmbiiok/jenkins-kaniko:latest'
+        }
+      }
+    }
+    stage('Update K8s Manifests & Push') {
+      environment {
+        githubUser = 'nolmbiiok'
+        githubEmail = 'dopasnippa@gmail.com'
+        githubId = 'nolmbiiok'
+        githubRepo = 'jenkins-kubernetes'
+        githubURL = "https://github.com/nolmbiiok/jenkins-kubernetes.git"
+        dockerhubId = 'nolmbiiok'
+        dockerhubRepo = 'jenkins-kaniko'
+      }
+      steps {
+        container('git') {
+          git branch: 'main', credentialsId: 'github-credential', url: "${githubURL}"
+          sh "git config --global --add safe.directory ${workspace}"
+          sh "git config --global user.name ${githubUser}"
+          sh "git config --global user.email ${githubEmail}"
+          sh 'sed -i "s/image:.*/image: ${dockerhubId}\\/${dockerhubRepo}:${BUILD_NUMBER}/g" deployment.yaml'
+          sh 'git add deployment.yaml'
+          sh 'git commit -m "Jenkins Build Number - ${BUILD_NUMBER}"'
+          withCredentials([gitUsernamePassword(credentialsId: 'github-credential', gitToolName: 'Default')]) {
+            sh 'git push --set-upstream origin main'
+          }
         }
       }
     }
